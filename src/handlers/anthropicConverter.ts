@@ -297,8 +297,8 @@ export function apiMessageToAnthropicMessage(
         }
     }
 
-    // 统一清理 cache_control：
-    // Anthropic 对 cache_control 的上限是 4，这里按消息顺序收集，超限时删除最早的标记
+    // Unified cache_control cleanup:
+    // Anthropic allows at most 4 cache_control markers; keep the latest 4 and drop older ones.
     const maxCacheControlCount = 4;
     interface CacheControlHolder {
         cache_control?: { type: string };
