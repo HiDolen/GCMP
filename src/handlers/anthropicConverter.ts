@@ -297,47 +297,40 @@ export function apiMessageToAnthropicMessage(
         }
     }
 
-    // Unified cache_control cleanup:
-    // Anthropic allows at most 4 cache_control markers; keep the latest 4 and drop older ones.
-    const maxCacheControlCount = 4;
-    interface CacheControlHolder {
-        cache_control?: { type: string };
-    }
-    const cacheControlHolders: CacheControlHolder[] = [];
-
-    if ((systemMessage as CacheControlHolder).cache_control) {
-        cacheControlHolders.push(systemMessage as CacheControlHolder);
-    }
-
-    for (const msg of mergedMessages) {
+    // 统一清理 cache_control：
+    // 从后往前遍历，每个块内只保留最后一个，同时全局只保留最后一个有效 block 的 cache_control
+    let foundLastCache = false;
+    for (let i = mergedMessages.length - 1; i >= 0; i--) {
+        const msg = mergedMessages[i];
         if (!Array.isArray(msg.content)) {
             continue;
         }
-        const blocks = msg.content as ContentBlockParam[];
-        for (const block of blocks) {
-            const blockWithCache = block as ContentBlockParam & CacheControlHolder;
-            if (blockWithCache.cache_control) {
-                cacheControlHolders.push(blockWithCache);
+        const blocks = msg.content as (ContentBlockParam & { cache_control?: { type: string } })[];
+        // 先清理该块内多余的 cache_control，只保留最后一个
+        let lastCacheIndex = -1;
+        for (let k = blocks.length - 1; k >= 0; k--) {
+            if (blocks[k].cache_control) {
+                lastCacheIndex = k;
+                break;
             }
-
-            if (block.type === 'tool_result') {
-                const toolResultContent = (block as ToolResultBlockParam).content;
-                if (Array.isArray(toolResultContent)) {
-                    for (const item of toolResultContent as (TextBlockParam | ImageBlockParam)[]) {
-                        const itemWithCache = item as (TextBlockParam | ImageBlockParam) & CacheControlHolder;
-                        if (itemWithCache.cache_control) {
-                            cacheControlHolders.push(itemWithCache);
-                        }
+        }
+        for (let k = 0; k < lastCacheIndex; k++) {
+            if ('cache_control' in blocks[k]) {
+                delete blocks[k].cache_control;
+            }
+        }
+        // 然后全局清理：从后往前，只保留最后一个有效 block 的 cache_control
+        // 跳过第一个块（i === 0）环境信息不参与全局清理
+        if (i > 0) {
+            for (let j = blocks.length - 1; j >= 0; j--) {
+                if (blocks[j].cache_control) {
+                    if (!foundLastCache) {
+                        foundLastCache = true;
+                    } else {
+                        delete blocks[j].cache_control;
                     }
                 }
             }
-        }
-    }
-
-    const overflowCount = cacheControlHolders.length - maxCacheControlCount;
-    if (overflowCount > 0) {
-        for (let i = 0; i < overflowCount; i++) {
-            delete cacheControlHolders[i].cache_control;
         }
     }
 
